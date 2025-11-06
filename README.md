@@ -8,8 +8,8 @@ This csRNA-seq pipeline provides a fully containerized Singularity environment t
 
 # Part I Workflow
 
-Here stands a thorough workflow of csRNA-seq data analysis.
-\<img width="2174" height="454" alt="csRNA-seq Workflow" src="[https://github.com/user-attachments/assets/df8e60b7-f06b-4da4-b71a-4b78cd7071a5](https://github.com/user-attachments/assets/df8e60b7-f06b-4da4-b71a-4b78cd7071a5)" /\>
+<img width="2242" height="508" alt="pipeline" src="https://github.com/user-attachments/assets/d39f07eb-e0ab-4499-bc4e-9fee73bfb842" />
+
 
 # Part II Requirements
 
@@ -159,7 +159,7 @@ Here stands a thorough workflow of csRNA-seq data analysis.
 
       * **Step 1: Edit `config.yaml`**
 
-        ⚠️ **Note:** All paths must be **absolute paths** and accessible from within the Singularity container (i.e., they must be under the `/project_directory` that you bind-mount).
+        **Note:** All paths must be **absolute paths** and accessible from within the Singularity container (i.e., they must be under the `/project_directory` that you bind-mount).
 
         ```yaml
         # ============================================================================
@@ -297,9 +297,6 @@ The output directory (defined in `config.yaml`) contains results organized by an
 │   │   └── … (strand-specific BedGraphs)
 │   └── multiqc_report.html
 
-> **Note:**  
-> Additional subdirectories (e.g., `qc/`, `intermediate/`, `tag_directories/`) are created for processing steps but omitted here for clarity.  
-> The files listed above represent the **final outputs** of the csRNA-seq analysis workflow.
 
 ---
 
