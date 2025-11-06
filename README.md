@@ -1,25 +1,24 @@
-# csRNA-seq Pipeline
+Here is the complete `README.md` file, formatted according to the `README-end-seq_reference.md` template, but using the content and file-specific details from your `csRNA-seq` pipeline, Snakemake file, and R script.
 
-This unified csRNA-seq pipeline processes raw FASTQ files through to differential TSS (Transcription Start Site) analysis and motif discovery. It uses Singularity for reproducibility, incorporating csRNA-seq, input control, and optional total RNA-seq data (both single-end and paired-end).
+-----
 
-## Workflow
+# csRNA-seq-Processing-Pipeline
 
-<img width="2174" height="454" alt="CleanShot 2025-09-25 at 18 17 53@2x" src="https://github.com/user-attachments/assets/df8e60b7-f06b-4da4-b71a-4b78cd7071a5" />
+This csRNA-seq pipeline provides a fully containerized Singularity environment that bundles all required tools (FastQC, Trim Galore, STAR, HOMER, DESeq2). With a single command, the entire workflow—from raw FASTQ input, trimming, quality control, genome alignment, and TSS calling, through to differential expression and motif analysis—can be executed reproducibly on any compatible system.
 
+# Part I Workflow
 
-## Features
+Here stands a thorough workflow of csRNA-seq data analysis.
+\<img width="2174" height="454" alt="csRNA-seq Workflow" src="[https://github.com/user-attachments/assets/df8e60b7-f06b-4da4-b71a-4b78cd7071a5](https://github.com/user-attachments/assets/df8e60b7-f06b-4da4-b71a-4b78cd7071a5)" /\>
 
-  * **Single Command Execution**: Executes the entire workflow—from FASTQ QC, alignment, and TSS calling, through read quantification, to differential expression analysis and motif discovery—with a single shell command.
-  * **Reproducible**: All core software (FastQC, Trim Galore, STAR, HOMER, R/DESeq2) is encapsulated within a Singularity container (csRNA.sif), ensuring the analysis is fully reproducible across different computing environments.
-  * **Automated Reporting**: Generates a final, interactive MultiQC report summarizing quality control metrics across all samples and steps for easy assessment.
+# Part II Requirements
 
-## Requirements
+1.  **Recommended Specs**:
 
-1.  **System Configuration**:
-    * 8-core CPU
-    * 64 GB RAM
+      * 8-core CPU
+      * 64 GB RAM
 
-2.  **Singularity**: Must be installed on your system. Below are detailed steps for installing on an Ubuntu 22.04 system. For other operating systems, please refer to the [official installation guide](https://www.google.com/search?q=https://docs.sylabs.io/guides/latest/user-guide/installation.html).
+2.  **Singularity**: Must be installed on your system. Below are the detailed steps for installing on an Ubuntu 22.0.4 system. For other operating systems, please refer to the official installation guide: [https://docs.sylabs.io/guides/latest/user-guide/installation.html](https://www.google.com/search?q=https://docs.sylabs.io/guides/latest/user-guide/installation.html)
 
       * **Step 1: Install System Dependencies**
 
@@ -78,237 +77,322 @@ This unified csRNA-seq pipeline processes raw FASTQ files through to differentia
         singularity --version
         ```
 
-3.  **Pipeline Files**:
+3.  **snakemake**: Snakemake must be installed on your system and requires a Python 3 distribution.
 
-      * `run_pipeline.sh`
-      * `csRNA.sif` (The Singularity container)
+    ```bash
+    pip install snakemake
+    ```
 
-4.  **Reference Data**: A directory containing all necessary reference files.
+4.  **Reference Data**: A directory containing the genome FASTA, GTF, and pre-built STAR indices. Below are detailed steps for the human hg38 genome.
 
-## Setup
+    ```bash
+    mkdir reference_data
+    cd reference_data
 
-### 1\. Prepare the Sample Sheet
+    # 1. Download Genome FASTA (from GENCODE)
+    wget https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_46/GRCh38.primary_assembly.genome.fa.gz
+    gunzip GRCh38.primary_assembly.genome.fa.gz
 
-This is the most critical input file. Create a CSV file named `samplesheet.csv`. The structure is designed to link csRNA, input, and RNA-seq files for each biological replicate and supports both single-end and paired-end RNA-seq (paried RNA-seq is optional).
+    # 2. Download Gene Annotation GTF (from GENCODE)
+    wget https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_46/gencode.v46.primary_assembly.annotation.gtf.gz
+    gunzip gencode.v46.primary_assembly.annotation.gtf.gz
 
-* `sample`: A unique identifier for the biological replicate (e.g., `Control_Rep1`).
-* `condition`: The experimental group (e.g., `Control`, `Treated`). Used for differential expression.
-* `type`: The type of data. Must be one of `csRNA`, `input`, or `rna`.
-* `fastq_r1`: The **absolute path** to the R1 FASTQ file.
-* `fastq_r2`: The **absolute path** to the R2 FASTQ file. **Leave this column empty for single-end data.**
-* `strandedness`: **Required only for `rna` type**. Specifies the library strandedness for `makeTagDirectory`. Options: `SE_plus`, `PE_plus`, `SE_minus`, `PE_minus`.
+    # 3. Create rRNA FASTA (for optional RNA-seq alignment)
+    # (Requires csRNA.sif container to be present in the parent directory)
+    awk '$3=="gene" && (/gene_type "rRNA_pseudogene"/ || /gene_type "rRNA"/) {print $1":"$4"-"$5}' gencode.v46.primary_assembly.annotation.gtf > gencode.v46.rRNA.intervals.txt
 
-**Example `samplesheet.csv`:**
+    singularity exec ../Containers/csRNA.sif samtools faidx GRCh38.primary_assembly.genome.fa -r gencode.v46.rRNA.intervals.txt > GRCh38.primary_assembly.rRNA.fa
 
-```csv
-sample,condition,type,fastq_r1,fastq_r2,strandedness
-Control_Rep1,Control,csRNA,/path/to/C1_csRNA.fastq.gz,,
-Control_Rep1,Control,input,/path/to/C1_input.fastq.gz,,
-Control_Rep1,Control,rna,/path/to/C1_rna_R1.fastq.gz,/path/to/C1_rna_R2.fastq.gz,PE_plus
-Control_Rep2,Control,csRNA,/path/to/C2_csRNA.fastq.gz,,
-Control_Rep2,Control,input,/path/to/C2_input.fastq.gz,,
-Treated_Rep1,Treated,csRNA,/path/to/T1_csRNA.fastq.gz,,
-Treated_Rep1,Treated,input,/path/to/T1_input.fastq.gz,,
-Treated_Rep2,Treated,csRNA,/path/to/T1_csRNA.fastq.gz,,
-Treated_Rep2,Treated,input,/path/to/T1_input.fastq.gz,,
-Treated_Rep1,Treated,rna,/path/to/T1_rna.fastq.gz,/path/to/C1_rna_T1.fastq.gz,PE_plus
-````
+    # 4. Build STAR Genome Index (This is resource-intensive)
+    mkdir star_genome_index
+    singularity exec ../Containers/csRNA.sif STAR \
+      --runThreadN 8 \
+      --runMode genomeGenerate \
+      --genomeDir ./star_genome_index \
+      --genomeFastaFiles ./GRCh38.primary_assembly.genome.fa \
+      --sjdbGTFfile ./gencode.v46.primary_assembly.annotation.gtf \
+      --sjdbOverhang 149
 
-### 2\. Prepare the Reference Data
+    # 5. Build STAR rRNA Index (for optional RNA-seq alignment)
+    mkdir star_rrna_index
+    singularity exec ../Containers/csRNA.sif STAR \
+      --runThreadN 8 \
+      --runMode genomeGenerate \
+      --genomeDir ./star_rrna_index \
+      --genomeFastaFiles ./GRCh38.primary_assembly.rRNA.fa
+    ```
 
-The pipeline requires a genome FASTA, an rRNA FASTA, a gene annotation GTF file, and pre-built STAR indices for both the genome and rRNA sequences.
+5.  **Required Files**:
 
-#### Create Reference Directory & Download Files
+    ```bash
+    project_directory/
+    ├── Scripts/
+    │   ├── csRNA-seq.smk
+    │   ├── config.yaml
+    │   └── csrna_deseq2_analysis.R
+    ├── Containers/
+    │   └── csRNA.sif
+    ├── Reference_Data/
+    │   ├── GRCh38.primary_assembly.genome.fa
+    │   ├── gencode.v46.primary_assembly.annotation.gtf
+    │   ├── GRCh38.primary_assembly.rRNA.fa
+    │   ├── star_genome_index/
+    │   │   └── (STAR index files)
+    │   └── star_rrna_index/
+    │       └── (STAR index files)
+    └── Raw_Data/
+        ├── SRR22752762.fastq.gz
+        ├── SRR22752761.fastq.gz
+        └── ... (all other fastq files)
+    ```
 
-```bash
-mkdir -p reference_data
-cd reference_data
+      - **csRNA-seq.smk** — The main Snakemake workflow script.
+      - **config.yaml** — Configuration file containing paths, parameters, and sample information.
+      - **csrna\_deseq2\_analysis.R** — R script for performing DESeq2 analysis.
+      - **csRNA.sif** — Singularity container image with all required software and dependencies pre-installed.
+      - **Reference\_Data/** — Directory containing all reference files and STAR indices as built in Step 4.
+      - **Raw\_Data/** — Directory containing your raw FASTQ files.
 
-# 1. Download Genome FASTA (from GENCODE)
-wget https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_46/GRCh38.primary_assembly.genome.fa.gzprimary_assembly.genome.fa.gz)
-gunzip GRCh38.primary_assembly.genome.fa.gz
+# Part III Running
 
-# 2. Download Gene Annotation GTF (from GENCODE)
-wget https://ftp.ebi.ac.uk/pub/databases/gencode/Gencode_human/release_46/gencode.v46.primary_assembly.annotation.gtf.gz
-gunzip gencode.v46.primary_assembly.annotation.gtf.gz
+  * **Example code**
 
-# 3. Download rRNA sequences (Example from Ensembl)
-# (Note: Optional, only for RNA-seq provided)
-wget http://ftp.ensembl.org/pub/release-111/fasta/homo_sapiens/ncrna/Homo_sapiens.GRCh38.ncrna.fa.gz
-# Create a list of rRNA intervals from the GTF for bowtie2's rRNA index
-awk '$3=="gene" && (/gene_type "rRNA_pseudogene"/ || /gene_type "rRNA"/) {print $1":"$4"-"$5}' gencode.v46.primary_assembly.annotation.gtf > gencode.v46.primary_assembly.rRNA.annotation.txt
-singularity exec csRNA.sif samtools faidx GRCh38.primary_assembly.genome.fa -r gencode.v48.primary_assembly.rRNA.annotation.txt > GRCh38.primary_assembly.rRNA.fa
-```
+      * **Step 1: Edit `config.yaml`**
 
-#### Build STAR Indices
+        ⚠️ **Note:** All paths must be **absolute paths** and accessible from within the Singularity container (i.e., they must be under the `/project_directory` that you bind-mount).
 
-These are one-time, resource-intensive steps.
+        ```yaml
+        # ============================================================================
+        # csRNA-seq Pipeline Configuration File (HOMER-based)
+        # ============================================================================
 
-```bash
-# 1. Build Genome Index
-singularity exec ../csRNA.sif STAR \
-  --runThreadN 8 \
-  --runMode genomeGenerate \
-  --genomeDir ./STAR_index \
-  --genomeFastaFiles ./GRCh38.primary_assembly.genome.fa \
-  --sjdbGTFfile ./gencode.v46.primary_assembly.annotation.gtf \
-  --sjdbOverhang 149
+        # --- 1. General Settings ---
+        output_dir: "/project_directory/results"
 
-# 2. Build rRNA Index
-# (Note: Optional, only for RNA-seq provided)
-singularity exec ../csRNA.sif STAR \
-  --runThreadN 8 \
-  --runMode genomeGenerate \
-  --genomeDir ./rRNA_STAR_index \
-  --genomeFastaFiles GRCh38.primary_assembly.rRNA.fa
-```
+        # Path to the Singularity container (csRNA.sif)
+        container: "/project_directory/Containers/csRNA.sif"
 
-## Running
+        # Number of CPU threads to use for parallel processing
+        threads: 8
 
-Execute the pipeline with a single command.
+        # --- 2. Species Configuration ---
+        species: "human" # Supported: "human", "mouse"
 
-```bash
-bash csRNA.sh \
-  -s ./samplesheet.csv \
-  -o ./csrna_homer_results \
-  -r ./reference_data \
-  -c ./csRNA.sif \
-  -t 8
-```
+        species_config:
+          human:
+            r_annotation_db: "org.Hs.eg.db"
 
-## Output Structure and Interpretation
+        # --- 3. Reference Files ---
+        ref:
+          genome_fasta: "/project_directory/Reference_Data/GRCh38.primary_assembly.genome.fa"
+          gtf: "/project_directory/Reference_Data/gencode.v46.primary_assembly.annotation.gtf"
+          rrna_star_index: "/project_directory/Reference_Data/star_rrna_index"
+          star_genome_index: "/project_directory/Reference_Data/star_genome_index"
 
-The output directory will contain results organized by analysis type.
+        # --- 4. Samples ---
+        # Define each biological sample.
+        # Omit any file type (e.g., 'input' or 'rna') if not available.
+        samples:
+          Control_Rep1:
+            condition: "Control"
+            csRNA: "/project_directory/Raw_Data/SRR22752762.fastq.gz"
+            input: "/project_directory/Raw_Data/SRR22752761.fastq.gz"
+          
+          Control_Rep2:
+            condition: "Control"
+            csRNA: "/project_directory/Raw_Data/SRR22752513.fastq.gz"
+            input: "/project_directory/Raw_Data/SRR22752760.fastq.gz"
 
-```
-./csrna_homer_results/
-├── tag_directories/
-│   ├── Control_Rep1_csRNA/
-│   ├── Control_Rep1_input/
-│   └── ...
+          Treated_Rep1:
+            condition: "Treated"
+            csRNA: "/project_directory/Raw_Data/SRR22752511.fastq.gz"
+            input: "/project_directory/Raw_Data/SRR22752757.fastq.gz"
+
+          Treated_Rep2:
+            condition: "Treated"
+            csRNA: "/project_directory/Raw_Data/SRR22752510.fastq.gz"
+            input: "/project_directory/Raw_Data/SRR22752756.fastq.gz"
+
+        # --- 5. Analysis Parameters ---
+        params:
+          trim_galore:
+            stringency: 4
+            length: 20
+            extra_adapter_params: ""
+
+          star_csrna:
+            outFilterMultimapNmax: 10000
+            outSAMmultNmax: 1
+
+          makeTagDirectory_csrna:
+            fragLength: 150
+
+          findMotifsGenome:
+            size: "-150,50"
+            len: "8,10,12"
+
+        # --- 6. Differential Expression Settings ---
+        analysis:
+          contrast: ["Treated", "Control"]
+          fdr_threshold: 0.05
+        ```
+
+      * **Step 2: run snakemake**
+
+        Navigate to the `Scripts/` directory (or wherever `csRNA-seq.smk` and `config.yaml` are located).
+
+        ```bash
+        snakemake -s csRNA-seq.smk --use-singularity --cores 8 --singularity-args "--bind /project_directory:/project_directory"
+        ```
+        Then delete the intermediate files and folders:
+
+        ```bash
+        rm -r results/qc/ results/intermediate/
+        ```
+
+
+  * **Command Parameters**
+
+    **edit `config.yaml`**
+
+      - `output_dir`: Path to the directory where all output will be stored (required).
+      - `container`: Absolute path to the `csRNA.sif` Singularity container image (required).
+      - `threads`: Number of threads to use for multithreaded rules (e.g., STAR, Trim Galore) (required).
+      - `species`: Species to use for analysis (e.g., "human", "mouse") (required).
+      - `ref`: Section containing absolute paths to all reference files (FASTA, GTF, STAR indices) (required).
+      - `samples`: The main sample definition block. Each sample must have a unique name (e.g., `Control_Rep1`) and a `condition` (e.g., `Control`). Provide absolute paths to `csRNA` and `input` fastq files. (Optional `rna` section not shown in example but supported by the workflow).
+      - `params`: Section for configuring parameters for specific tools like `trim_galore`, `star_csrna`, and `findMotifsGenome`.
+      - `analysis`: Section for defining the differential expression contrast. `contrast: [treatment_group, control_group]` (required for DE analysis).
+
+    **run snakemake**
+
+      - `--use-singularity`: Enables execution of rules within a Singularity container to ensure a fully reproducible environment.
+      - `--singularity-args`: Allows passing additional arguments to the Singularity runtime.
+      - `--cores`: Specifies the maximum number of CPU cores (threads) that Snakemake can use in parallel.
+      - `--bind`: Specifies the directories to be mounted within the Singularity container. **You must bind-mount the entire project directory** so the container can access scripts, raw data, references, and the output directory. The format is `/host/path:/container/path`.
+
+# Part IV. Output
+
+## **Output Structure**
+
+The output directory (defined in `config.yaml`) contains results organized by analysis type:
+
+<output_dir>/
 ├── tss_calling/
 │   ├── Control_Rep1.tss.txt
-│   └── ...
-├── differential_expression/
-│   ├── merged_tss_clusters.txt
-│   ├── raw_counts.txt
-│   └── differential_results.txt
-├── motif_analysis/
-│   ├── nucleotide_freq.txt
-│   ├── knownResults.html
-│   ├── homerResults.html
-│   └── ...
-├── visualization/
-│   ├── Control_Rep1_csRNA.pos.bedGraph
-│   └── Control_Rep1_csRNA.neg.bedGraph
-    └── ...
-└── multiqc_report/
-    └── multiqc_report.html
-```
-### 1. Quality Control and Alignment
+│   └── … (one for each csRNA sample)
+├── results/
+│   ├── differential_expression/
+│   │   ├── merged_tss_clusters.txt
+│   │   ├── raw_counts.txt
+│   │   └── deseq2_results.txt
+│   ├── motif_analysis/
+│   │   ├── nucleotide_freq.txt
+│   │   ├── knownResults.html
+│   │   ├── homerResults.html
+│   │   └── … (motif discovery results)
+│   ├── visualization/
+│   │   ├── Control_Rep1_csRNA.pos.bedGraph
+│   │   ├── Control_Rep1_csRNA.neg.bedGraph
+│   │   └── … (strand-specific BedGraphs)
+│   └── multiqc_report.html
 
-* **`multiqc_report/multiqc_report.html`**: Open this file in a web browser to explore all quality control sections interactively.
+> **Note:**  
+> Additional subdirectories (e.g., `qc/`, `intermediate/`, `tag_directories/`) are created for processing steps but omitted here for clarity.  
+> The files listed above represent the **final outputs** of the csRNA-seq analysis workflow.
 
-    * **Application**: This is the first file you should check to assess the overall quality of your sequencing data and the alignment process. It helps identify problematic samples (e.g., low alignment rate, high duplication) early on.
+---
 
-        * **General Statistics**: A combined table summarizing important metrics for each sample, including read counts and alignment percentages.
+## **Output Interpretation**
 
-        <img width="1986" height="1196" alt="CleanShot 2025-09-25 at 18 35 46@2x" src="https://github.com/user-attachments/assets/f56c93cb-48b0-47d2-ae21-a2f86d842572" />
+### **1. Quality Control and Alignment**
 
+**File:** `multiqc_report/multiqc_report.html`  
+**Purpose:** Aggregated quality control summary for raw reads, adapter trimming, and alignment results.
 
-        * **FastQC**: Reports quality-control metrics on raw and trimmed reads, including 'Sequence Counts', 'Sequence Quality Histograms', 'Per Sequence Quality Scores', and 'Adapter Content'.
-        *   - **Sequence Quality Histograms**: The mean quality value across each base position in the read.
-         
-              <img width="2000" height="1252" alt="CleanShot 2025-09-25 at 18 33 24@2x" src="https://github.com/user-attachments/assets/21bdc1ca-6c77-4681-ba6a-fdd3247a56b9" />
+- **General Statistics:** Summary table of sequencing metrics such as total reads, GC content, and alignment rate.  
+  ![QC Summary](https://github.com/user-attachments/assets/f56c93cb-48b0-47d2-ae21-a2f86d842572)
 
+- **FastQC:** Per-sample quality profiles.  
+  - **Sequence Quality Histograms:** Base-level Phred quality distribution.  
+    ![FastQC Quality](https://github.com/user-attachments/assets/21bdc1ca-6c77-4681-ba6a-fdd3247a56b9)
+  - **Adapter Content:** Percentage of reads containing adapter sequences.  
+    ![Adapter Content](https://github.com/user-attachments/assets/2ea454a6-8662-4ca1-9b61-7ddcd4b4cb2a)
 
-            - **Adapter Content**: The cumulative percentage count of the proportion of your library which has seen each of the adapter sequences at each position.
-         
-              <img width="1996" height="1236" alt="CleanShot 2025-09-25 at 18 34 03@2x" src="https://github.com/user-attachments/assets/2ea454a6-8662-4ca1-9b61-7ddcd4b4cb2a" />
+- **Cutadapt:** Adapter and low-quality base trimming statistics.  
+  ![Cutadapt](https://github.com/user-attachments/assets/9c19b496-9ece-47db-88c7-bacb0bd36f46)
 
-        - **Cutadapt**: Reports the number of reads and bases trimmed for adapters and quality:
+- **STAR Alignment:** Mapping quality metrics, including unique/multimapped rates and rRNA filtering.  
+  ![STAR Alignment](https://github.com/user-attachments/assets/d9f8ed15-5f3c-4a01-b6d9-b9f6f2a7ba16)
 
-        <img width="2010" height="1232" alt="CleanShot 2025-09-25 at 18 37 02@2x" src="https://github.com/user-attachments/assets/9c19b496-9ece-47db-88c7-bacb0bd36f46" />
+---
 
-     
-          
-        * **STAR**: Summarizes alignment metrics, including the percentage of uniquely mapped reads, multimapped reads, and unmapped reads. For the RNA-seq samples, this also reports the percentage of reads removed during rRNA filtering.
-     
-        * <img width="2006" height="838" alt="CleanShot 2025-09-25 at 18 35 23@2x" src="https://github.com/user-attachments/assets/d9f8ed15-5f3c-4a01-b6d9-b9f6f2a7ba16" />
+### **2. TSS Calling and Quantification**
 
-     
-        
+#### **`tss_calling/*.tss.txt`**
 
-* **`tag_directories/`**: These directories are the primary data format used by **HOMER** for all downstream analysis.
+- **Description:** Per-sample TSS cluster calls from `findcsRNATSS.pl`.  
+- **Key Columns:**
+  - `PeakID`: Unique TSS ID  
+  - `Chr`, `Start`, `End`, `Strand`: Genomic coordinates  
+  - `Annotation`: Gene context (e.g., promoter, exon)  
+  - `Score`: Cluster significance metric  
+  - `Total Tags`: Raw tag counts per region  
 
-    * **Application**: These directories store aligned read positions in an indexed, compressed format, along with crucial metadata (e.g., total mapped reads, fragment length) used by **HOMER** for normalization and peak/TSS calling.
+> **Use:** Inspect individual biological replicates before merging for differential testing.
 
-***
+---
 
-### 2. TSS Calling and Quantification
+#### **`differential_expression/merged_tss_clusters.txt`**
 
-* **`tss_calling/*.tss.txt`**: A Tab-Separated Value file containing the TSS clusters identified for a single sample (e.g., `Control_Rep1.tss.txt`).
+- **Description:** Unified coordinate reference of all TSS clusters across samples.  
+- **Use:** Serves as the master feature set for read quantification and DE analysis.
 
-    * **Format**: A standard HOMER peak file format. Key columns include:
-        * `PeakID`: The ID assigned by `findcsRNATSS.pl`.
-        * `Chr`, `Start`, `End`, `Strand`: The genomic location of the TSS cluster.
-        * `Annotation`: Genomic feature the TSS is near (e.g., Gene, TSS).
-        * `Score`: A statistical measure of significance for the TSS call.
-        * `Total Tags`: The raw read count within the cluster for that specific sample.
+---
 
-    * **Application**: This file represents the raw, per-sample output of the **TSS calling** step (`findcsRNATSS.pl`). It is useful for inspecting TSSs specific to a single biological replicate before merging.
+#### **`differential_expression/raw_counts.txt`**
 
-* **`differential_expression/merged_tss_clusters.txt`**: A single HOMER peak file containing the combined coordinates of all TSS clusters identified across all samples.
+- **Description:** Annotated count matrix produced by HOMER’s `annotatePeaks.pl`.  
+- **Use:** Direct input for DESeq2 analysis ensuring counts are measured across identical genomic loci in all samples.
 
-    * **Application**: This file serves as the **master coordinate set** for differential analysis. All subsequent quantification steps use these regions to count reads from all samples.
+---
 
-* **`differential_expression/raw_counts.txt`**: A Tab-Separated Value file generated by `annotatePeaks.pl`, which contains the annotation of the merged TSS clusters and the raw read counts for *every* csRNA sample.
+### **3. Differential Expression Analysis**
 
-    * **Application**: This is the direct input matrix for the **DESeq2** R analysis. It ensures that all samples have read counts quantified across the identical set of merged genomic regions.
+#### **`differential_expression/deseq2_results.txt`**
 
-***
+- **Description:** Final differential expression results from DESeq2.  
+- **Key Columns:**
+  - `baseMean`: Mean normalized counts  
+  - `log2FoldChange`: Fold-change between experimental groups  
+  - `lfcSE`: Standard error of fold-change  
+  - `stat`, `pvalue`, `padj`: Wald test statistic and multiple-testing corrected FDR  
 
-### 3. Differential Expression Analysis
+> **Interpretation:**  
+> Filter by `padj < 0.05` and `|log2FoldChange| > 1` to identify significantly altered TSS clusters.
 
-* **`differential_expression/differential_results.txt`**: The final output file containing the results of the **DESeq2** analysis.
+---
 
-    * **Format**: A wide, Tab-Separated Value file. It combines the original annotation and raw count columns from `raw_counts.txt` with the statistical results from **DESeq2**. Key columns (from DESeq2) include:
-        * `baseMean`: The mean of normalized counts across all samples.
-        * `log2FoldChange`: The estimated log2 fold change between the two conditions (e.g., Treated vs. Control).
-        * `lfcSE`: The standard error of the log2 fold change.
-        * `stat`: The Wald test statistic.
-        * `pvalue`: The nominal p-value.
-        * **`padj`**: The adjusted p-value (FDR or $q$-value), corrected for multiple testing.
+### **4. Visualization and Motif Analysis**
 
-    * **Application**: This is the **primary result file** for the entire pipeline. You will filter this file by `padj` (typically $<0.05$) and `log2FoldChange` (e.g., $|\text{log2FoldChange}| > 1$) to identify **differentially regulated TSS clusters** between your experimental conditions.
+#### **`visualization/*.bedGraph`**
 
-***
+- **Format:** `chromosome`, `start`, `end`, `value`  
+- **Use:** Load `.pos.bedGraph` and `.neg.bedGraph` in IGV or UCSC Genome Browser to visualize strand-specific transcription activity.  
 
-### 4. Visualization and Motif Analysis
+  ![BedGraph](https://github.com/user-attachments/assets/1b860be0-28ae-4f06-b286-49469c840cc2)
 
-* **`visualization/*.bedGraph`**: Strand-specific **BedGraph** files (e.g., `Control_Rep1_csRNA.pos.bedGraph`).
+---
 
-    * **Format**: A four-column, space-separated file suitable for visualization: `chromosome`, `start`, `end`, `value` (read count). One file is generated for the positive strand (`.pos.bedGraph`) and one for the negative strand (`.neg.bedGraph`) for each sample.
+#### **Motif Enrichment Results**
 
-    * **Application**: These files allow you to load the strand-specific csRNA signal for individual samples directly into a **genome browser** (like IGV or UCSC Genome Browser). This is crucial for visually confirming the TSS clusters and observing signal changes between conditions.
+| File | Description | Use |
+|------|--------------|-----|
+| `motif_analysis/knownResults.html` | Enrichment of **known TF motifs** near merged TSS clusters. | Identify regulatory TFs contributing to expression changes. |
+| `motif_analysis/homerResults.html` | Results of *de novo* motif discovery. | Detect novel or uncharacterized sequence motifs. |
+| `motif_analysis/nucleotide_freq.txt` | Base composition around TSS regions. | Examine A/T- or G/C-rich sequence features. |
 
-    <img width="1968" height="408" alt="CleanShot 2025-09-25 at 18 26 32@2x" src="https://github.com/user-attachments/assets/1b860be0-28ae-4f06-b286-49469c840cc2" />
+Example visualizations of **motif enrichment results**:  
 
-
-* **`motif_analysis/knownResults.html`**: 
-
-    * **Application**: This report is used for **motif enrichment analysis**. It provides a ranked list of known transcription factor (TF) binding sites and *de novo* motifs that are statistically enriched near the **merged TSS clusters** compared to a background set of sequences. This helps predict the TFs that may be driving the differential gene expression.
- 
-    * <img width="2654" height="618" alt="CleanShot 2025-09-25 at 18 27 38@2x" src="https://github.com/user-attachments/assets/dcab98e5-a5b4-4154-affc-40509a6410ff" />
-    
-
-* **`motif_analysis/homerResults.html`**: 
-
-    * **Application**: This report is used for **motif enrichment analysis**. It provides a ranked list of homer detected transcription factor (TF) binding sites and *de novo* motifs that are statistically enriched near the **merged TSS clusters** compared to a background set of sequences. This helps predict the TFs that may be driving the differential gene expression.
-
-    <img width="2644" height="784" alt="CleanShot 2025-09-25 at 18 29 15@2x" src="https://github.com/user-attachments/assets/2dd6ccad-6996-4579-902b-8e214564aef4" />
-    
-
-* **`motif_analysis/nucleotide_freq.txt`**: A text file containing the nucleotide (A, C, G, T) frequency distribution around the merged TSS clusters.
-
-    * **Application**: Useful for characterizing the general sequence properties of the csRNA-seq peaks, such as the presence of a C/G-rich region or specific initiator elements around the TSS. 
+![Known Motifs](https://github.com/user-attachments/assets/dcab98e5-a5b4-4154-affc-40509a6410ff)  
+![De novo Motifs](https://github.com/user-attachments/assets/2dd6ccad-6996-4579-902b-8e214564aef4)
